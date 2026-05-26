@@ -123,45 +123,30 @@ namespace Nodify.Playground
             var schema = new GraphSchema();
             var connections = RandomNodesGenerator.GenerateConnections(GraphViewModel.Nodes);
 
-            if (Settings.AsyncLoading)
+            // Mutations must run on the UI thread — observable collections bound to ItemsControls
+            // aren't thread-safe; cross-thread Add races Avalonia 12's PanelContainerGenerator and
+            // crashes with ArgumentOutOfRangeException. AsyncLoading still yields to keep the
+            // window responsive during large batches.
+            const int batchSize = 50;
+            for (int i = 0; i < connections.Count; i++)
             {
-                await Task.Run(() =>
-                {
-                    for (int i = 0; i < connections.Count; i++)
-                    {
-                        var con = connections[i];
-                        schema.TryAddConnection(con.Input, con.Output);
-                    }
-                });
-            }
-            else
-            {
-                for (int i = 0; i < connections.Count; i++)
-                {
-                    var con = connections[i];
-                    schema.TryAddConnection(con.Input, con.Output);
-                }
+                var con = connections[i];
+                schema.TryAddConnection(con.Input, con.Output);
+
+                if (Settings.AsyncLoading && i % batchSize == batchSize - 1)
+                    await Task.Yield();
             }
         }
 
         private async Task CopyToAsync(IList source, IList target)
         {
-            if (Settings.AsyncLoading)
+            const int batchSize = 50;
+            for (int i = 0; i < source.Count; i++)
             {
-                await Task.Run(() =>
-                {
-                    for (int i = 0; i < source.Count; i++)
-                    {
-                        target.Add(source[i]);
-                    }
-                });
-            }
-            else
-            {
-                for (int i = 0; i < source.Count; i++)
-                {
-                    target.Add(source[i]);
-                }
+                target.Add(source[i]);
+
+                if (Settings.AsyncLoading && i % batchSize == batchSize - 1)
+                    await Task.Yield();
             }
         }
     }
