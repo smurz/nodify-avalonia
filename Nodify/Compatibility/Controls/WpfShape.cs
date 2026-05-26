@@ -64,11 +64,11 @@ public class WpfShape : Panel
         _shape.OnCreateDefiningGeometry += OnCreateDefiningGeometry;
     }
 
-    private void InvalidateGeometry() => _shape?.InvalidateGeometry();
+    protected void InvalidateGeometry() => _shape?.InvalidateGeometry();
     
     private Geometry? OnCreateDefiningGeometry() => CreateDefiningGeometry();
 
-    private new void InvalidateVisual() => _renderer?.InvalidateVisual();
+    protected new void InvalidateVisual() => _renderer?.InvalidateVisual();
     
     private void OnRender(DrawingContext drawingContext) => Render(drawingContext);
 

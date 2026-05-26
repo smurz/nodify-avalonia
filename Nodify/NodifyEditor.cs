@@ -66,6 +66,7 @@ namespace Nodify
         {
             var editor = (NodifyEditor)d;
             editor.UpdateScrollbars();
+            editor.UpdateLargeGraphVisuals();
         }
 
         private static void OnViewportLocationChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -80,7 +81,7 @@ namespace Nodify
             editor.TranslateTransform.X = -translate.X * editor.ViewportZoom;
             editor.TranslateTransform.Y = -translate.Y * editor.ViewportZoom;
 
-            var renderScale = (editor.GetVisualRoot()?.RenderScaling ?? 1);
+            var renderScale = TopLevel.GetTopLevel(editor)?.RenderScaling ?? 1;
             editor.DpiScaledTranslateTransform.X = editor.TranslateTransform.X * renderScale;
             editor.DpiScaledTranslateTransform.Y = editor.TranslateTransform.Y * renderScale;
 
@@ -167,6 +168,7 @@ namespace Nodify
         {
             UpdateScrollbars();
             UpdatePushedArea();
+            UpdateLargeGraphVisuals();
             RaiseEvent(new RoutedEventArgs(ViewportUpdatedEvent, this));
         }
 
@@ -283,20 +285,130 @@ namespace Nodify
 
         private void ApplyRenderingOptimizations()
         {
-            if (ItemsHost != null)
+            UpdateLargeGraphVisuals();
+        }
+
+        private bool _largeGraphUpdateScheduled;
+
+        // Coalesces viewport-driven culling work. ViewportLocation/ViewportZoom changes fire at
+        // ~60Hz during pan/zoom; without coalescing each fired an O(items) sweep. A single
+        // Background-priority pass per frame is enough — culling is a perf optimization, not a
+        // correctness need, and a one-frame lag is imperceptible.
+        private void UpdateLargeGraphVisuals()
+        {
+            if (_largeGraphUpdateScheduled || ItemsHost == null)
+                return;
+
+            _largeGraphUpdateScheduled = true;
+            Dispatcher.UIThread.Post(RunLargeGraphVisualsUpdate, DispatcherPriority.Background);
+        }
+
+        private void RunLargeGraphVisualsUpdate()
+        {
+            _largeGraphUpdateScheduled = false;
+            if (ItemsHost == null)
+                return;
+
+            UpdateItemViewportCulling();
+            UpdateConnectionViewportCulling();
+        }
+
+        private void UpdateItemViewportCulling()
+        {
+            ItemCollection items = Items;
+            bool shouldCull = EnableViewportCulling
+                && items.Count >= ViewportCullingMinimumItems
+                && ViewportSize.Width > 0
+                && ViewportSize.Height > 0;
+
+            Rect viewport = GetInflatedViewport(ViewportCullingMargin);
+
+            for (var i = 0; i < items.Count; i++)
             {
-                if (EnableRenderingContainersOptimizations && Items.Count >= OptimizeRenderingMinimumContainers)
-                {
-                    double zoom = ViewportZoom;
-                    double availableZoomIn = 1.0 - MinViewportZoom;
-                    bool shouldCache = zoom / availableZoomIn <= OptimizeRenderingZoomOutPercent;
-                    //ItemsHost.CacheMode = shouldCache ? new BitmapCache(1.0 / zoom) : null;
-                }
-                else
-                {
-                    //ItemsHost.CacheMode = null;
-                }
+                if (ContainerFromIndex(i) is not ItemContainer container)
+                    continue;
+
+                bool isVisible = !shouldCull
+                    || container.IsSelected
+                    || container.IsPreviewingSelection != null
+                    || container.IsPreviewingLocation
+                    || IsItemContainerInViewport(container, viewport);
+
+                SetLargeGraphVisibility(container, isVisible);
             }
+        }
+
+        private void UpdateConnectionViewportCulling()
+        {
+            if (ConnectionsHost is not ConnectionsMultiSelector selector)
+                return;
+
+            bool shouldCull = EnableConnectionViewportCulling
+                && selector.Items.Count >= ConnectionViewportCullingMinimumConnections
+                && ViewportSize.Width > 0
+                && ViewportSize.Height > 0;
+
+            selector.UpdateViewportCulling(this, shouldCull, GetInflatedViewport(ConnectionViewportCullingMargin));
+        }
+
+        internal Rect GetInflatedViewport(double margin)
+        {
+            var viewport = new Rect(ViewportLocation, ViewportSize);
+            double zoom = Math.Max(ViewportZoom, 0.0001d);
+            return viewport.Inflate(margin / zoom);
+        }
+
+        internal bool ShouldSimplifyConnectionGeometry()
+            => EnableConnectionGeometrySimplification
+               && GetConnectionCount() >= ConnectionGeometrySimplificationMinimumConnections;
+
+        internal bool ShouldThrottleRealtimeSelection()
+            => AutoThrottleRealtimeSelection
+               && Items.Count >= RealtimeSelectionThrottleMinimumItems
+               && RealtimeSelectionThrottleMilliseconds > 0;
+
+        private int GetConnectionCount()
+        {
+            if (ConnectionsHost is ItemsControl connectionsHost)
+                return connectionsHost.Items.Count;
+
+            return CountEnumerable(Connections);
+        }
+
+        private static int CountEnumerable(IEnumerable? items)
+        {
+            if (items is null)
+                return 0;
+
+            if (items is ICollection collection)
+                return collection.Count;
+
+            var count = 0;
+            foreach (object? _ in items)
+                count++;
+
+            return count;
+        }
+
+        private static bool IsItemContainerInViewport(ItemContainer container, Rect viewport)
+        {
+            Size size = container.Bounds.Size;
+            if (size.Width <= 0 || size.Height <= 0 || double.IsNaN(size.Width) || double.IsNaN(size.Height))
+                size = container.DesiredSize;
+
+            if (size.Width <= 0 || size.Height <= 0 || double.IsInfinity(size.Width) || double.IsInfinity(size.Height))
+                return true;
+
+            return viewport.Intersects(new Rect(container.Location, size));
+        }
+
+        internal static void SetLargeGraphVisibility(Control control, bool isVisible)
+        {
+            // SetCurrentValue (not SetValue) so consumer bindings/styles on IsVisible retain their
+            // BindingPriority precedence. IsHitTestVisible is derived from IsVisible by Avalonia,
+            // so toggling it explicitly is both redundant and clobbers any consumer setting.
+            if (control.IsVisible != isVisible)
+                control.SetCurrentValue(Visual.IsVisibleProperty, isVisible);
         }
 
         #endregion
@@ -579,6 +691,17 @@ namespace Nodify
         public static readonly StyledProperty<IEnumerable> DecoratorsProperty = AvaloniaProperty.Register<NodifyEditor, IEnumerable>(nameof(Decorators));
         public static readonly StyledProperty<bool> CanSelectMultipleConnectionsProperty = AvaloniaProperty.Register<NodifyEditor, bool>(nameof(CanSelectMultipleConnections), BoxValue.True);
         public static readonly StyledProperty<bool> CanSelectMultipleItemsProperty = AvaloniaProperty.Register<NodifyEditor, bool>(nameof(CanSelectMultipleItems), BoxValue.True, coerce: CoerceCanSelectMultipleItems);
+        public static readonly StyledProperty<bool> EnableViewportCullingProperty = AvaloniaProperty.Register<NodifyEditor, bool>(nameof(EnableViewportCulling), BoxValue.True);
+        public static readonly StyledProperty<uint> ViewportCullingMinimumItemsProperty = AvaloniaProperty.Register<NodifyEditor, uint>(nameof(ViewportCullingMinimumItems), 150u);
+        public static readonly StyledProperty<double> ViewportCullingMarginProperty = AvaloniaProperty.Register<NodifyEditor, double>(nameof(ViewportCullingMargin), 800d);
+        public static readonly StyledProperty<bool> EnableConnectionViewportCullingProperty = AvaloniaProperty.Register<NodifyEditor, bool>(nameof(EnableConnectionViewportCulling), BoxValue.True);
+        public static readonly StyledProperty<uint> ConnectionViewportCullingMinimumConnectionsProperty = AvaloniaProperty.Register<NodifyEditor, uint>(nameof(ConnectionViewportCullingMinimumConnections), 150u);
+        public static readonly StyledProperty<double> ConnectionViewportCullingMarginProperty = AvaloniaProperty.Register<NodifyEditor, double>(nameof(ConnectionViewportCullingMargin), 1200d);
+        public static readonly StyledProperty<bool> EnableConnectionGeometrySimplificationProperty = AvaloniaProperty.Register<NodifyEditor, bool>(nameof(EnableConnectionGeometrySimplification), BoxValue.True);
+        public static readonly StyledProperty<uint> ConnectionGeometrySimplificationMinimumConnectionsProperty = AvaloniaProperty.Register<NodifyEditor, uint>(nameof(ConnectionGeometrySimplificationMinimumConnections), 150u);
+        public static readonly StyledProperty<bool> AutoThrottleRealtimeSelectionProperty = AvaloniaProperty.Register<NodifyEditor, bool>(nameof(AutoThrottleRealtimeSelection), BoxValue.True);
+        public static readonly StyledProperty<uint> RealtimeSelectionThrottleMinimumItemsProperty = AvaloniaProperty.Register<NodifyEditor, uint>(nameof(RealtimeSelectionThrottleMinimumItems), 150u);
+        public static readonly StyledProperty<double> RealtimeSelectionThrottleMillisecondsProperty = AvaloniaProperty.Register<NodifyEditor, double>(nameof(RealtimeSelectionThrottleMilliseconds), 33d);
 
         private static void OnCanSelectMultipleItemsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
             => ((NodifyEditor)d).CanSelectMultipleItemsBase = (bool)e.NewValue;
@@ -588,6 +711,9 @@ namespace Nodify
 
         private static void OnSelectedItemsSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
             => ((NodifyEditor)d).OnSelectedItemsSourceChanged((IList)e.OldValue, (IList)e.NewValue);
+
+        private static void OnConnectionsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+            => ((NodifyEditor)d).OnConnectionsChanged(e.OldValue as IEnumerable, e.NewValue as IEnumerable);
 
         private static uint OnCoerceGridCellSize(DependencyObject d, uint value)
             => (uint)value > 0u ? value : BoxValue.UInt1;
@@ -599,6 +725,27 @@ namespace Nodify
             var editor = (NodifyEditor)d;
             editor.OnDisableAutoPanningChanged(editor.DisableAutoPanning || editor.DisablePanning);
         }
+
+        private static void OnLargeGraphOptimizationChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+            => ((NodifyEditor)d).UpdateLargeGraphVisuals();
+
+        private void OnConnectionsChanged(IEnumerable? oldValue, IEnumerable? newValue)
+        {
+            if (oldValue is INotifyCollectionChanged oldCollection)
+            {
+                oldCollection.CollectionChanged -= OnConnectionsCollectionChanged;
+            }
+
+            if (newValue is INotifyCollectionChanged newCollection)
+            {
+                newCollection.CollectionChanged += OnConnectionsCollectionChanged;
+            }
+
+            UpdateLargeGraphVisuals();
+        }
+
+        private void OnConnectionsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+            => UpdateLargeGraphVisuals();
 
         /// <summary>
         /// Gets or sets the items that will be rendered in the decorators layer via <see cref="DecoratorContainer"/>s.
@@ -690,6 +837,105 @@ namespace Nodify
         {
             get => (bool)GetValue(EnableRealtimeSelectionProperty);
             set => SetValue(EnableRealtimeSelectionProperty, value);
+        }
+
+        /// <summary>
+        /// Hides off-viewport item containers after <see cref="ViewportCullingMinimumItems"/> is reached.
+        /// </summary>
+        public bool EnableViewportCulling
+        {
+            get => (bool)GetValue(EnableViewportCullingProperty);
+            set => SetValue(EnableViewportCullingProperty, value);
+        }
+
+        /// <summary>
+        /// Minimum number of items required before viewport culling is applied.
+        /// </summary>
+        public uint ViewportCullingMinimumItems
+        {
+            get => (uint)GetValue(ViewportCullingMinimumItemsProperty);
+            set => SetValue(ViewportCullingMinimumItemsProperty, value);
+        }
+
+        /// <summary>
+        /// Extra graph-space margin, in screen pixels before zoom correction, retained around the visible viewport.
+        /// </summary>
+        public double ViewportCullingMargin
+        {
+            get => (double)GetValue(ViewportCullingMarginProperty);
+            set => SetValue(ViewportCullingMarginProperty, value);
+        }
+
+        /// <summary>
+        /// Hides off-viewport connection containers after <see cref="ConnectionViewportCullingMinimumConnections"/> is reached.
+        /// </summary>
+        public bool EnableConnectionViewportCulling
+        {
+            get => (bool)GetValue(EnableConnectionViewportCullingProperty);
+            set => SetValue(EnableConnectionViewportCullingProperty, value);
+        }
+
+        /// <summary>
+        /// Minimum number of connections required before connection viewport culling is applied.
+        /// </summary>
+        public uint ConnectionViewportCullingMinimumConnections
+        {
+            get => (uint)GetValue(ConnectionViewportCullingMinimumConnectionsProperty);
+            set => SetValue(ConnectionViewportCullingMinimumConnectionsProperty, value);
+        }
+
+        /// <summary>
+        /// Extra graph-space margin, in screen pixels before zoom correction, retained around the visible viewport for connections.
+        /// </summary>
+        public double ConnectionViewportCullingMargin
+        {
+            get => (double)GetValue(ConnectionViewportCullingMarginProperty);
+            set => SetValue(ConnectionViewportCullingMarginProperty, value);
+        }
+
+        /// <summary>
+        /// Omits connection text, outlines, arrowheads and directional arrows on large graphs.
+        /// </summary>
+        public bool EnableConnectionGeometrySimplification
+        {
+            get => (bool)GetValue(EnableConnectionGeometrySimplificationProperty);
+            set => SetValue(EnableConnectionGeometrySimplificationProperty, value);
+        }
+
+        /// <summary>
+        /// Minimum number of connections required before connection geometry simplification is applied.
+        /// </summary>
+        public uint ConnectionGeometrySimplificationMinimumConnections
+        {
+            get => (uint)GetValue(ConnectionGeometrySimplificationMinimumConnectionsProperty);
+            set => SetValue(ConnectionGeometrySimplificationMinimumConnectionsProperty, value);
+        }
+
+        /// <summary>
+        /// Throttles realtime rubber-band selection previews after <see cref="RealtimeSelectionThrottleMinimumItems"/> is reached.
+        /// </summary>
+        public bool AutoThrottleRealtimeSelection
+        {
+            get => (bool)GetValue(AutoThrottleRealtimeSelectionProperty);
+            set => SetValue(AutoThrottleRealtimeSelectionProperty, value);
+        }
+
+        /// <summary>
+        /// Minimum number of items required before realtime selection previews are throttled.
+        /// </summary>
+        public uint RealtimeSelectionThrottleMinimumItems
+        {
+            get => (uint)GetValue(RealtimeSelectionThrottleMinimumItemsProperty);
+            set => SetValue(RealtimeSelectionThrottleMinimumItemsProperty, value);
+        }
+
+        /// <summary>
+        /// Minimum milliseconds between realtime rubber-band selection previews on large graphs.
+        /// </summary>
+        public double RealtimeSelectionThrottleMilliseconds
+        {
+            get => (double)GetValue(RealtimeSelectionThrottleMillisecondsProperty);
+            set => SetValue(RealtimeSelectionThrottleMillisecondsProperty, value);
         }
 
         /// <summary>
@@ -932,7 +1178,7 @@ namespace Nodify
 
                 for (var i = 0; i < items.Count; i++)
                 {
-                    containers.Add((ItemContainer)ItemContainerGenerator.ContainerFromIndex(i));
+                    containers.Add((ItemContainer)ContainerFromIndex(i));
                 }
 
                 return containers;
@@ -955,11 +1201,20 @@ namespace Nodify
             ViewportZoomProperty.Changed.AddClassHandler<NodifyEditor>(OnViewportZoomChanged);
             MinViewportZoomProperty.Changed.AddClassHandler<NodifyEditor>(OnMinViewportZoomChanged);
             MaxViewportZoomProperty.Changed.AddClassHandler<NodifyEditor>(OnMaxViewportZoomChanged);
+            ConnectionsProperty.Changed.AddClassHandler<NodifyEditor>(OnConnectionsChanged);
             SelectedItemsProperty.Changed.AddClassHandler<NodifyEditor>(OnSelectedItemsSourceChanged);
             IsCuttingProperty.Changed.AddClassHandler<NodifyEditor>(OnIsCuttingChanged);
             CanSelectMultipleItemsProperty.Changed.AddClassHandler<NodifyEditor>(OnCanSelectMultipleItemsChanged);
             ItemsExtentProperty.Changed.AddClassHandler<NodifyEditor>(OnItemsExtentChanged);
             IsPushingItemsProperty.Changed.AddClassHandler<NodifyEditor>(OnIsPushingItemsChanged);
+            EnableViewportCullingProperty.Changed.AddClassHandler<NodifyEditor>(OnLargeGraphOptimizationChanged);
+            ViewportCullingMinimumItemsProperty.Changed.AddClassHandler<NodifyEditor>(OnLargeGraphOptimizationChanged);
+            ViewportCullingMarginProperty.Changed.AddClassHandler<NodifyEditor>(OnLargeGraphOptimizationChanged);
+            EnableConnectionViewportCullingProperty.Changed.AddClassHandler<NodifyEditor>(OnLargeGraphOptimizationChanged);
+            ConnectionViewportCullingMinimumConnectionsProperty.Changed.AddClassHandler<NodifyEditor>(OnLargeGraphOptimizationChanged);
+            ConnectionViewportCullingMarginProperty.Changed.AddClassHandler<NodifyEditor>(OnLargeGraphOptimizationChanged);
+            EnableConnectionGeometrySimplificationProperty.Changed.AddClassHandler<NodifyEditor>(OnLargeGraphOptimizationChanged);
+            ConnectionGeometrySimplificationMinimumConnectionsProperty.Changed.AddClassHandler<NodifyEditor>(OnLargeGraphOptimizationChanged);
 
             EditorCommands.Register(typeof(NodifyEditor));
         }
@@ -969,7 +1224,7 @@ namespace Nodify
         /// </summary>
         public NodifyEditor()
         {
-            AddHandler(Gestures.PointerTouchPadGestureMagnifyEvent, OnPointerTouchPadGestureMagnify);
+            AddHandler(InputElement.PointerTouchPadGestureMagnifyEvent, OnPointerTouchPadGestureMagnify);
             AddHandler(Connector.DisconnectEvent, new ConnectorEventHandler(OnConnectorDisconnected));
             AddHandler(Connector.PendingConnectionStartedEvent, new PendingConnectionEventHandler(OnConnectionStarted));
             AddHandler(Connector.PendingConnectionCompletedEvent, new PendingConnectionEventHandler(OnConnectionCompleted));
@@ -1487,7 +1742,7 @@ namespace Nodify
             BeginUpdateSelectedItems();
             for (var i = 0; i < items.Count; i++)
             {
-                var container = (ItemContainer)ItemContainerGenerator.ContainerFromIndex(i);
+                var container = (ItemContainer)ContainerFromIndex(i);
                 if (container.IsPreviewingSelection == true && container.IsSelectable)
                 {
                     Selection.Select(i);
@@ -1507,7 +1762,7 @@ namespace Nodify
             ItemCollection items = Items;
             for (var i = 0; i < items.Count; i++)
             {
-                var container = (ItemContainer)ItemContainerGenerator.ContainerFromIndex(i);
+                var container = (ItemContainer)ContainerFromIndex(i);
                 container.IsPreviewingSelection = null;
             }
         }
@@ -1525,7 +1780,7 @@ namespace Nodify
             BeginUpdateSelectedItems();
             for (var i = 0; i < items.Count; i++)
             {
-                var container = (ItemContainer)ItemContainerGenerator.ContainerFromIndex(i);
+                var container = (ItemContainer)ContainerFromIndex(i);
 
                 if (container.IsSelectableInArea(area, fit))
                 {
@@ -1563,7 +1818,7 @@ namespace Nodify
             BeginUpdateSelectedItems();
             for (var i = 0; i < items.Count; i++)
             {
-                var container = (ItemContainer)ItemContainerGenerator.ContainerFromIndex(i);
+                var container = (ItemContainer)ContainerFromIndex(i);
                 if (container.IsSelectableInArea(area, fit))
                 {
                     Selection.Select(i);
@@ -1625,6 +1880,7 @@ namespace Nodify
         private void OnItemsDragDelta(object? sender, DragDeltaEventArgs e)
         {
             _draggingStrategy?.Update(new Vector(e.HorizontalChange, e.VerticalChange));
+            UpdateConnectionViewportCulling();
         }
 
         private void OnItemsDragCompleted(object? sender, DragCompletedEventArgs e)

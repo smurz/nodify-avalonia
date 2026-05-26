@@ -25,6 +25,9 @@ namespace Nodify
         public static readonly StyledProperty<Size> MaxViewportOffsetProperty = AvaloniaProperty.Register<Minimap, Size>(nameof(MaxViewportOffset), new Size(2000, 2000));
         public static readonly StyledProperty<bool> ResizeToViewportProperty = AvaloniaProperty.Register<Minimap, bool>(nameof(ResizeToViewport));
         public static readonly StyledProperty<bool> IsReadOnlyProperty = TextBox.IsReadOnlyProperty.AddOwner<Minimap>();
+        public static readonly StyledProperty<bool> EnableItemContentSimplificationProperty = AvaloniaProperty.Register<Minimap, bool>(nameof(EnableItemContentSimplification), BoxValue.True);
+        public static readonly StyledProperty<uint> ItemContentSimplificationMinimumItemsProperty = AvaloniaProperty.Register<Minimap, uint>(nameof(ItemContentSimplificationMinimumItems), 100u);
+        public static readonly StyledProperty<bool> ShowItemContentProperty = AvaloniaProperty.Register<Minimap, bool>(nameof(ShowItemContent), BoxValue.True);
 
         public static readonly RoutedEvent ZoomEvent = RoutedEvent.Register<ZoomEventArgs>(nameof(Zoom), RoutingStrategies.Bubble, typeof(Minimap));
 
@@ -86,6 +89,33 @@ namespace Nodify
             set => SetValue(IsReadOnlyProperty, value);
         }
 
+        /// <summary>
+        /// Hides item content inside minimap entries once the minimap has many items.
+        /// </summary>
+        public bool EnableItemContentSimplification
+        {
+            get => (bool)GetValue(EnableItemContentSimplificationProperty);
+            set => SetValue(EnableItemContentSimplificationProperty, value);
+        }
+
+        /// <summary>
+        /// Minimum number of items required before minimap item content is hidden.
+        /// </summary>
+        public uint ItemContentSimplificationMinimumItems
+        {
+            get => (uint)GetValue(ItemContentSimplificationMinimumItemsProperty);
+            set => SetValue(ItemContentSimplificationMinimumItemsProperty, value);
+        }
+
+        /// <summary>
+        /// Gets or sets whether minimap item content presenters are visible.
+        /// </summary>
+        public bool ShowItemContent
+        {
+            get => (bool)GetValue(ShowItemContentProperty);
+            set => SetValue(ShowItemContentProperty, value);
+        }
+
         /// <summary>Triggered when zooming in or out using the mouse wheel.</summary>
         public event ZoomEventHandler Zoom
         {
@@ -112,6 +142,26 @@ namespace Nodify
         }
 
         protected bool IsDragging { get; private set; }
+
+        internal void UpdateItemContentVisibility(int itemCount)
+        {
+            bool showContent = !EnableItemContentSimplification || itemCount < ItemContentSimplificationMinimumItems;
+            if (ShowItemContent == showContent)
+                return;
+
+            // Called from MinimapPanel.MeasureOverride. Flipping ShowItemContent flips the bound
+            // ContentPresenter.IsVisible on every MinimapItem, which invalidates measure on the
+            // panel mid-pass -> Avalonia logs "Layout cycle detected". Defer to next dispatcher
+            // turn so the property change kicks off a clean second measure pass.
+            Dispatcher.UIThread.Post(
+                () =>
+                {
+                    bool latest = !EnableItemContentSimplification || itemCount < ItemContentSimplificationMinimumItems;
+                    if (ShowItemContent != latest)
+                        SetCurrentValue(ShowItemContentProperty, latest);
+                },
+                DispatcherPriority.Background);
+        }
 
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {

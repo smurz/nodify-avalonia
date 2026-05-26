@@ -41,7 +41,10 @@ namespace Nodify
             for (int i = 0; i < children.Count; i++)
             {
                 var item = (INodifyCanvasItem)children[i];
-                item.Arrange(new Rect(item.Location, item.DesiredSize));
+                if (children[i].IsVisible)
+                {
+                    item.Arrange(new Rect(item.Location, item.DesiredSize));
+                }
 
                 Size size = children[i].DesiredSize;
 
@@ -83,7 +86,10 @@ namespace Nodify
 
             for (int i = 0; i < children.Count; i++)
             {
-                children[i].Measure(availableSize);
+                if (children[i].IsVisible || children[i].DesiredSize == default)
+                {
+                    children[i].Measure(availableSize);
+                }
             }
 
             return default;

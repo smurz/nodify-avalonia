@@ -14,8 +14,23 @@ namespace Nodify
         /// </summary>
         public static double ScrollIncrement { get; set; } = MouseWheelDeltaForOneLine / 2;
 
-        bool ILogicalScrollable.CanHorizontallyScroll { get; set; }
-        bool ILogicalScrollable.CanVerticallyScroll { get; set; }
+        private bool _canHorizontallyScroll;
+        private bool _canVerticallyScroll;
+
+        bool ILogicalScrollable.CanHorizontallyScroll
+        {
+            get => _canHorizontallyScroll;
+            set => _canHorizontallyScroll = value;
+        }
+
+        bool ILogicalScrollable.CanVerticallyScroll
+        {
+            get => _canVerticallyScroll;
+            set => _canVerticallyScroll = value;
+        }
+
+        bool Avalonia.Controls.Primitives.IScrollable.CanHorizontallyScroll => _canHorizontallyScroll;
+        bool Avalonia.Controls.Primitives.IScrollable.CanVerticallyScroll => _canVerticallyScroll;
 
         private double _extentWidth;
         double IScrollInfo.ExtentWidth => _extentWidth;

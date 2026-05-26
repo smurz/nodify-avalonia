@@ -52,6 +52,18 @@ namespace Nodify
         protected override bool IsItemItsOwnContainerOverride(object item)
             => item is ConnectionContainer;
 
+        internal void UpdateViewportCulling(NodifyEditor editor, bool shouldCull, Rect viewport)
+        {
+            ItemCollection items = Items;
+            for (var i = 0; i < items.Count; i++)
+            {
+                if (ContainerFromIndex(i) is ConnectionContainer container)
+                {
+                    container.UpdateViewportCulling(editor, shouldCull, viewport);
+                }
+            }
+        }
+
         private void OnSelectedItemsSourceChanged(IList oldValue, IList newValue)
         {
             if (oldValue is INotifyCollectionChanged oc)

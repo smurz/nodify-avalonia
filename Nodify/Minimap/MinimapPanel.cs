@@ -56,6 +56,8 @@ namespace Nodify
             double maxY = double.MinValue;
 
             UIElementCollection children = Children;
+            this.GetParentOfType<Minimap>()?.UpdateItemContentVisibility(children.Count);
+
             for (int i = 0; i < children.Count; i++)
             {
                 var item = (MinimapItem)children[i];

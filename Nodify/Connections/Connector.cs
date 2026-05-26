@@ -132,12 +132,17 @@ namespace Nodify
         /// <summary>
         /// Gets or sets the minimum selected items needed to trigger optimizations when outside of the <see cref="OptimizeSafeZone"/>.
         /// </summary>
-        public static uint OptimizeMinimumSelectedItems = 100;
+        public static uint OptimizeMinimumSelectedItems = 20;
+
+        /// <summary>
+        /// Gets or sets the minimum graph size needed to skip off-viewport anchor updates while dragging.
+        /// </summary>
+        public static uint OptimizeMinimumEditorItems = 150;
 
         /// <summary>
         /// Gets or sets if <see cref="Connector"/>s should enable optimizations based on <see cref="OptimizeSafeZone"/> and <see cref="OptimizeMinimumSelectedItems"/>.
         /// </summary>
-        public static bool EnableOptimizations = false;
+        public static bool EnableOptimizations = true;
 
         /// <summary>
         /// Gets or sets whether cancelling a pending connection is allowed.
@@ -151,6 +156,9 @@ namespace Nodify
 
         private Point _lastUpdatedContainerPosition;
         private Point _thumbCenter;
+        private Vector? _cachedAnchorOffset;
+        private Size _cachedThumbSize;
+        private Size _cachedContainerSize;
         private bool _isHooked;
 
         #endregion
@@ -164,6 +172,7 @@ namespace Nodify
 
             Container = this.GetParentOfType<ItemContainer>();
             Editor = Container?.Editor ?? this.GetParentOfType<NodifyEditor>();
+            _cachedAnchorOffset = null;
 
             Loaded += OnConnectorLoaded;
             Unloaded += OnConnectorUnloaded;
@@ -199,7 +208,10 @@ namespace Nodify
         }
 
         private void OnContainerSizeChanged(object? sender, SizeChangedEventArgs e)
-            => UpdateAnchorOptimized(Container!.Location);
+        {
+            _cachedAnchorOffset = null;
+            UpdateAnchorOptimized(Container!.Location);
+        }
 
         private void OnConnectorLoaded(object? sender, RoutedEventArgs? e)
             => TrySetAnchorUpdateEvents(true);
@@ -225,6 +237,7 @@ namespace Nodify
             Size newSize = sizeInfo.NewSize;
             if (newSize.Width > 0d || newSize.Height > 0d)
             {
+                _cachedAnchorOffset = null;
                 TrySetAnchorUpdateEvents(true);
 
                 if (Container != null)
@@ -254,7 +267,9 @@ namespace Nodify
             // Update only connectors that are connected
             if (Editor != null && IsConnected)
             {
-                bool shouldOptimize = EnableOptimizations && Editor.SelectedItems?.Count > OptimizeMinimumSelectedItems;
+                bool shouldOptimize = EnableOptimizations
+                    && (Editor.SelectedItems?.Count > OptimizeMinimumSelectedItems
+                        || Editor.Items.Count >= OptimizeMinimumEditorItems);
 
                 if (shouldOptimize)
                 {
@@ -289,13 +304,37 @@ namespace Nodify
         {
             _lastUpdatedContainerPosition = location;
 
+            // No location-based early-return: when only Thumb.Bounds.Size changes (template
+            // re-arrange, theme change), the location is unchanged but the cached offset is
+            // stale. GetAnchorOffset() has its own cache keyed on thumbSize + containerSize
+            // and short-circuits when nothing changed; the Anchor != anchor compare below
+            // avoids redundant SetCurrentValue. Net: cheap, correct.
             if (Thumb != null && Container != null)
             {
-                var thumbSize = Thumb.Bounds.Size.ToVector() /*RenderSize*/;
-                Vector containerMargin = Container.Bounds.Size.ToVector() /*RenderSize */ - Container.DesiredSize.ToVector();
-                Point relativeLocation = Thumb.TranslatePoint((Point)(thumbSize / 2 - containerMargin / 2), Container) ?? default;
-                SetCurrentValue(AnchorProperty, new Point(location.X + relativeLocation.X, location.Y + relativeLocation.Y));
+                Vector relativeLocation = GetAnchorOffset();
+                Point anchor = new Point(location.X + relativeLocation.X, location.Y + relativeLocation.Y);
+                if (Anchor != anchor)
+                {
+                    SetCurrentValue(AnchorProperty, anchor);
+                }
             }
+        }
+
+        private Vector GetAnchorOffset()
+        {
+            Size thumbSize = Thumb!.Bounds.Size;
+            Size containerSize = Container!.Bounds.Size;
+
+            if (_cachedAnchorOffset.HasValue && _cachedThumbSize == thumbSize && _cachedContainerSize == containerSize)
+                return _cachedAnchorOffset.Value;
+
+            Vector containerMargin = containerSize.ToVector() - Container.DesiredSize.ToVector();
+            Point relativeLocation = Thumb.TranslatePoint((Point)(thumbSize.ToVector() / 2 - containerMargin / 2), Container) ?? default;
+
+            _cachedThumbSize = thumbSize;
+            _cachedContainerSize = containerSize;
+            _cachedAnchorOffset = (Vector)relativeLocation;
+            return _cachedAnchorOffset.Value;
         }
 
         /// <summary>

@@ -33,6 +33,12 @@ public class RoutedCommand : ICommand
         InputElement.GotFocusEvent.AddClassHandler<Interactive>(GotFocusEventHandler);
         InputElement.LostFocusEvent.AddClassHandler<Interactive>(LostFocusEventHandler);
         Popup.IsOpenProperty.Changed.AddClassHandler<Popup>(PopupIsOpenChanged);
+
+        if (_hostedRootHostProperty is null)
+            System.Diagnostics.Trace.WriteLine(
+                "Nodify.RoutedCommand: could not locate Avalonia.VisualTree.IHostedVisualTreeRoot.Host via reflection. " +
+                "Routed commands raised inside popups (menus, flyouts, autocompletes) will not reach handlers on the owning editor/window. " +
+                "Avalonia internals likely changed; update RoutedCommand reflection lookup.");
     }
 
     private static void PopupIsOpenChanged(Popup popup, AvaloniaPropertyChangedEventArgs e)
@@ -44,12 +50,12 @@ public class RoutedCommand : ICommand
         CommandManager.InvalidateRequerySuggested();
     }
 
-    private static void GotFocusEventHandler(Interactive focused, GotFocusEventArgs e)
+    private static void GotFocusEventHandler(Interactive focused, FocusChangedEventArgs e)
     {
         _focusedElement = focused as IInputElement;
     }
 
-    private static void LostFocusEventHandler(Interactive arg1, RoutedEventArgs arg2)
+    private static void LostFocusEventHandler(Interactive arg1, FocusChangedEventArgs arg2)
     {
         if (ReferenceEquals(_focusedElement, arg1))
             _focusedElement = null;
@@ -80,7 +86,7 @@ public class RoutedCommand : ICommand
             }
 
             if (control is PopupRoot popup)
-                control = ((IHostedVisualTreeRoot)popup).Host as Interactive;
+                control = GetHostedRootHost(popup) as Interactive;
             else
                 control = control.Parent as Interactive;
         }
@@ -111,7 +117,7 @@ public class RoutedCommand : ICommand
             }
 
             if (control is PopupRoot popup)
-                control = ((IHostedVisualTreeRoot)popup).Host as Interactive;
+                control = GetHostedRootHost(popup) as Interactive;
             else
                 control = control.Parent as Interactive;
         }
@@ -158,7 +164,19 @@ public class RoutedCommand : ICommand
         remove => CommandManager.RequerySuggested -= value;
     }
         
-    private static readonly AttachedProperty<IList<CommandBinding>?> CommandBindingsProperty 
+    // IHostedVisualTreeRoot became internal in Avalonia 12; reach Host via reflection so
+    // command routing still crosses popup boundaries. The interface lives in Avalonia.Base
+    // (alongside Visual), NOT Avalonia.Controls — looking it up via typeof(PopupRoot).Assembly
+    // silently returns null and breaks popup command routing.
+    private static readonly System.Reflection.PropertyInfo? _hostedRootHostProperty =
+        typeof(Visual).Assembly
+            .GetType("Avalonia.VisualTree.IHostedVisualTreeRoot")?
+            .GetProperty("Host", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+
+    private static Visual? GetHostedRootHost(PopupRoot popup)
+        => _hostedRootHostProperty?.GetValue(popup) as Visual;
+
+    private static readonly AttachedProperty<IList<CommandBinding>?> CommandBindingsProperty
         = AvaloniaProperty.RegisterAttached<RoutedCommand, Interactive, IList<CommandBinding>?>("CommandBinding", null);
         
     internal static IList<CommandBinding>? GetCommandBindings(Interactive elem)

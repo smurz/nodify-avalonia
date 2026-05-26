@@ -77,6 +77,22 @@ namespace Nodify
             Selector = selector;
         }
 
+        internal void UpdateViewportCulling(NodifyEditor editor, bool shouldCull, Rect viewport)
+        {
+            var connection = Connection as BaseConnection ?? this.GetChildOfType<BaseConnection>();
+            bool isVisible = !shouldCull
+                || IsSelected
+                || connection == null
+                || connection.IntersectsViewport(viewport);
+
+            NodifyEditor.SetLargeGraphVisibility(this, isVisible);
+            if (connection != null)
+            {
+                connection.UpdatePerformanceRendering();
+                NodifyEditor.SetLargeGraphVisibility(connection, isVisible);
+            }
+        }
+
         /// <summary>
         /// Raises the <see cref="SelectedEvent"/> or <see cref="UnselectedEvent"/> based on <paramref name="newValue"/>.
         /// Called when the <see cref="IsSelected"/> value is changed.

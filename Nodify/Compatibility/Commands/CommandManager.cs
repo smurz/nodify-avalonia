@@ -50,12 +50,12 @@ internal static class CommandManager
         InvalidateRequerySuggested();
     }
 
-    private static void GotFocusEventHandler(Interactive sender, GotFocusEventArgs e)
+    private static void GotFocusEventHandler(Interactive sender, FocusChangedEventArgs e)
     {
         InvalidateRequerySuggested();
     }
 
-    private static void LostFocusEventHandler(Interactive sender, RoutedEventArgs e)
+    private static void LostFocusEventHandler(Interactive sender, FocusChangedEventArgs e)
     {
         InvalidateRequerySuggested();
     }

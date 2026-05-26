@@ -76,6 +76,8 @@ public partial class NodifyEditor
                 Selection.Select(Items.IndexOf(SelectedItems[i]));
             }
         }
+
+        UpdateLargeGraphVisuals();
     }
 
     #region Scrollable

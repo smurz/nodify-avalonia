@@ -15,6 +15,7 @@ namespace Nodify
         private Point _startLocation;
         private SelectionType _selectionType;
         private bool _isRealtime;
+        private long _lastRealtimePreviewTick;
         private IReadOnlyList<ItemContainer> _initialSelection = new List<ItemContainer>();
 
         /// <summary>Constructs a new instance of a <see cref="SelectionHelper"/>.</summary>
@@ -65,10 +66,23 @@ namespace Nodify
 
             _host.SelectedArea = new Rect(left, top, width, height);
 
-            if (_isRealtime)
+            if (_isRealtime && CanPreviewRealtimeSelection())
             {
                 PreviewSelection(_host.SelectedArea);
             }
+        }
+
+        private bool CanPreviewRealtimeSelection()
+        {
+            if (!_host.ShouldThrottleRealtimeSelection())
+                return true;
+
+            long now = Environment.TickCount64;
+            if (now - _lastRealtimePreviewTick < _host.RealtimeSelectionThrottleMilliseconds)
+                return false;
+
+            _lastRealtimePreviewTick = now;
+            return true;
         }
 
         /// <summary>Commits the current selection to the editor.</summary>
@@ -131,7 +145,7 @@ namespace Nodify
             ItemCollection items = _host.Items;
             for (var i = 0; i < items.Count; i++)
             {
-                var container = (ItemContainer)_host.ItemContainerGenerator.ContainerFromIndex(i);
+                var container = (ItemContainer)_host.ContainerFromIndex(i);
                 container.IsPreviewingSelection = false;
             }
         }
@@ -148,7 +162,7 @@ namespace Nodify
                 ItemCollection items = _host.Items;
                 for (var i = 0; i < items.Count; i++)
                 {
-                    var container = (ItemContainer)_host.ItemContainerGenerator.ContainerFromIndex(i);
+                    var container = (ItemContainer)_host.ContainerFromIndex(i);
                     if (container.IsSelectableInArea(area, fit))
                     {
                         container.IsPreviewingSelection = true;
@@ -162,7 +176,7 @@ namespace Nodify
             ItemCollection items = _host.Items;
             for (var i = 0; i < items.Count; i++)
             {
-                var container = (ItemContainer)_host.ItemContainerGenerator.ContainerFromIndex(i);
+                var container = (ItemContainer)_host.ContainerFromIndex(i);
                 if (container.IsSelectableInArea(area, fit))
                 {
                     container.IsPreviewingSelection = false;
@@ -183,7 +197,7 @@ namespace Nodify
             ItemCollection items = _host.Items;
             for (var i = 0; i < items.Count; i++)
             {
-                var container = (ItemContainer)_host.ItemContainerGenerator.ContainerFromIndex(i);
+                var container = (ItemContainer)_host.ContainerFromIndex(i);
                 if (container.IsSelectableInArea(area, fit))
                 {
                     container.IsPreviewingSelection = !container.IsPreviewingSelection;

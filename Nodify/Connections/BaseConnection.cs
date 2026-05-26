@@ -477,9 +477,13 @@ namespace Nodify
 
         private ConnectionContainer? _container;
         private ConnectionContainer? Container => _container ??= this.GetParentOfType<ConnectionContainer>();
+        private NodifyEditor? _editor;
+        private NodifyEditor? Editor => _editor ??= this.GetParentOfType<NodifyEditor>();
+        private bool _isSimplifiedGeometry;
 
         protected override Geometry CreateDefiningGeometry()
         {
+            bool simplify = ShouldSimplifyGeometry();
             var _geometry = new StreamGeometry
             {
                 // FillRule = FillRule.EvenOdd
@@ -489,7 +493,8 @@ namespace Nodify
                 (Vector sourceOffset, Vector targetOffset) = GetOffset();
                 var (arrowStart, arrowEnd) = DrawLineGeometry(context, Source + sourceOffset, Target + targetOffset);
 
-                if (ArrowSize.Width != 0d && ArrowSize.Height != 0d)
+                Size arrowSize = simplify ? default : ArrowSize;
+                if (arrowSize.Width != 0d && arrowSize.Height != 0d)
                 {
                     var reverseDirection = Direction == ConnectionDirection.Forward ? ConnectionDirection.Backward : ConnectionDirection.Forward;
                     switch (ArrowEnds)
@@ -509,7 +514,7 @@ namespace Nodify
                             break;
                     }
 
-                    if (DirectionalArrowsCount > 0)
+                    if (!simplify && DirectionalArrowsCount > 0)
                     {
                         DrawDirectionalArrowsGeometry(context, Source + sourceOffset, Target + targetOffset);
                     }
@@ -517,6 +522,35 @@ namespace Nodify
             }
 
             return _geometry;
+        }
+
+        internal bool IntersectsViewport(Rect viewport)
+        {
+            (Vector sourceOffset, Vector targetOffset) = GetOffset();
+            Point source = Source + sourceOffset;
+            Point target = Target + targetOffset;
+
+            double left = Math.Min(source.X, target.X);
+            double top = Math.Min(source.Y, target.Y);
+            double width = Math.Max(Math.Abs(source.X - target.X), 1d);
+            double height = Math.Max(Math.Abs(source.Y - target.Y), 1d);
+            double padding = Math.Max(StrokeThickness + OutlineThickness, 1d) + 24d;
+
+            return viewport.Intersects(new Rect(left, top, width, height).Inflate(padding));
+        }
+
+        private bool ShouldSimplifyGeometry()
+            => Editor?.ShouldSimplifyConnectionGeometry() == true;
+
+        internal void UpdatePerformanceRendering()
+        {
+            bool shouldSimplify = ShouldSimplifyGeometry();
+            if (_isSimplifiedGeometry == shouldSimplify)
+                return;
+
+            _isSimplifiedGeometry = shouldSimplify;
+            InvalidateGeometry();
+            InvalidateVisual();
         }
 
         protected abstract ((Point ArrowStartSource, Point ArrowStartTarget), (Point ArrowEndSource, Point ArrowEndTarget)) DrawLineGeometry(StreamGeometryContext context, Point source, Point target);
@@ -841,14 +875,15 @@ namespace Nodify
 
         protected override void Render(DrawingContext drawingContext)
         {
-            if (OutlineBrush != null)
+            bool simplify = ShouldSimplifyGeometry();
+            if (!simplify && OutlineBrush != null)
             {
                 drawingContext.DrawGeometry(OutlineBrush, GetOutlinePen(), CreateDefiningGeometry());
             }
 
             base.Render(drawingContext);
         
-            if (!string.IsNullOrEmpty(Text))
+            if (!simplify && !string.IsNullOrEmpty(Text))
             {
                 var typeface = new Typeface(FontFamily, FontStyle, FontWeight, FontStretch);
                 var text = new FormattedText(Text, CultureInfo.CurrentUICulture, FlowDirection, typeface, FontSize, Foreground ?? Stroke);

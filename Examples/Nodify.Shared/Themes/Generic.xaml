@@ -268,7 +268,7 @@
                                                 <Setter Property="(Interaction.Behaviors)">
                                                     <BehaviorCollectionTemplate>
                                                         <BehaviorCollection>
-                                                            <DataTrigger Property="." Value="{Binding Path=SelectedColor, RelativeSource={RelativeSource AncestorType=local:Swatches}}">
+                                                            <DataTrigger Binding="{Binding}" Value="{Binding Path=SelectedColor, RelativeSource={RelativeSource AncestorType=local:Swatches}}">
                                                                 <PropertySetter Property="Background"
                                                                     Value="White" />
                                                             </DataTrigger>

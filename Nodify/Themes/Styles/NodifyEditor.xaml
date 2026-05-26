@@ -7,7 +7,8 @@
     <local:ScalePointConverter x:Key="ScalePointConverter" />
 
     <DataTemplate x:Key="ConnectionTemplate">
-        <local:Connection Theme="{DynamicResource {x:Type local:Connection}}" />
+        <local:LineConnection Theme="{DynamicResource {x:Type local:LineConnection}}"
+                              ArrowEnds="None" />
     </DataTemplate>
 
     <DataTemplate x:Key="PendingConnectionTemplate">
@@ -73,7 +74,7 @@
                             <ItemsPresenter Name="PART_ItemsPresenter">
                                 <ItemsPresenter.ItemsPanel>
                                     <ItemsPanelTemplate>
-                                        <local:NodifyCanvas Extent="{Binding ItemsExtent, Mode=OneWayToSource, RelativeSource={RelativeSource TemplatedParent}}" />
+                                        <local:NodifyCanvas Extent="{Binding ItemsExtent, Mode=OneWayToSource, RelativeSource={RelativeSource AncestorType=local:NodifyEditor}}" />
                                     </ItemsPanelTemplate>
                                 </ItemsPresenter.ItemsPanel>
                             </ItemsPresenter>
