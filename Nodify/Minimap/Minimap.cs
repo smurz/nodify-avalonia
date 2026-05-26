@@ -117,7 +117,10 @@ namespace Nodify
         }
 
         /// <summary>Triggered when zooming in or out using the mouse wheel.</summary>
-        public event ZoomEventHandler Zoom
+        // Use EventHandler<ZoomEventArgs> rather than the legacy ZoomEventHandler delegate so
+        // Avalonia 12's XAML compiler can wire `Zoom="MethodName"` attribute syntax. The custom
+        // delegate works at runtime but the AvaloniaResource compiler can't recognise it.
+        public event EventHandler<ZoomEventArgs> Zoom
         {
             add => AddHandler(ZoomEvent, value);
             remove => RemoveHandler(ZoomEvent, value);

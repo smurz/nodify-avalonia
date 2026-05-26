@@ -5,6 +5,8 @@
     <TargetFrameworks>net10.0</TargetFrameworks>
     <Nullable>enable</Nullable>
     <LangVersion>12</LangVersion>
+    <!-- See Nodify.StateMachine.csproj for rationale. -->
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
     <AssemblyOriginatorKeyFile>..\..\build\Nodify.snk</AssemblyOriginatorKeyFile>
     <SignAssembly>true</SignAssembly>
   </PropertyGroup>

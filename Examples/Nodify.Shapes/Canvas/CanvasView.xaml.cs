@@ -20,6 +20,8 @@ namespace Nodify.Shapes.Canvas
             InitializeComponent();
             _moveToLocationTimer = new DispatcherTimer(TimeSpan.FromSeconds(1d / 60d), DispatcherPriority.Background, OnMoveToLocationTick);
             _generateLocationTimer = new DispatcherTimer(TimeSpan.FromSeconds(3), DispatcherPriority.Background, OnGenerateNewLocation);
+            // See NodifyEditorView for why this wires up in code-behind rather than XAML.
+            Minimap.Zoom += Minimap_Zoom;
         }
 
         protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
@@ -100,7 +102,7 @@ namespace Nodify.Shapes.Canvas
 
         #endregion
 
-        private void Minimap_Zoom(object sender, ZoomEventArgs e)
+        private void Minimap_Zoom(object? sender, ZoomEventArgs e)
         {
             Editor.ZoomAtPosition(e.Zoom, e.Location);
         }

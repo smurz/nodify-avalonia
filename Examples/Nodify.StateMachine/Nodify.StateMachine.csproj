@@ -4,6 +4,10 @@
     <OutputType>WinExe</OutputType>
     <TargetFrameworks>net10.0</TargetFrameworks>
     <Nullable>enable</Nullable>
+    <!-- Avalonia 12 enables compiled bindings by default. This demo's XAML uses many bindings
+         without explicit x:DataType declarations; opt back to reflection bindings (v11 behavior)
+         to keep the migration scope minimal. -->
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
     <AssemblyOriginatorKeyFile>..\..\build\Nodify.snk</AssemblyOriginatorKeyFile>
     <SignAssembly>true</SignAssembly>
   </PropertyGroup>

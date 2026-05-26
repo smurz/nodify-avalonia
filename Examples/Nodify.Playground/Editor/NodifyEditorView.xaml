@@ -627,14 +627,14 @@
               IsVisible="{Binding ShowGridLines, Source={x:Static local:PlaygroundSettings.Instance}, Converter={shared:BooleanToVisibilityConverter}}"
               Panel.ZIndex="-2" />
 
-        <nodify:Minimap ItemsSource="{Binding ItemsSource, ElementName=Editor}"
+        <nodify:Minimap Name="Minimap"
+                        ItemsSource="{Binding ItemsSource, ElementName=Editor}"
                         ViewportSize="{Binding ViewportSize, ElementName=Editor}"
                         ViewportLocation="{Binding ViewportLocation, ElementName=Editor}"
                         IsVisible="{Binding ShowMinimap, Source={x:Static local:PlaygroundSettings.Instance}, Converter={shared:BooleanToVisibilityConverter}}"
                         IsReadOnly="{Binding DisableMinimapControls, Source={x:Static local:PlaygroundSettings.Instance}}"
                         ResizeToViewport="{Binding ResizeToViewport, Source={x:Static local:PlaygroundSettings.Instance}}"
                         MaxViewportOffset="{Binding MinimapMaxViewportOffset.Size, Source={x:Static local:PlaygroundSettings.Instance}}"
-                        Zoom="Minimap_Zoom"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Bottom"
                         Width="300"
