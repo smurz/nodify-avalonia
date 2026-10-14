@@ -29,7 +29,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <AdditionalFiles SourceItemGroup="AvaloniaXaml" Include="**/*.xaml"/>
-    <AvaloniaResource Include="**/*.xaml" />
+    <AvaloniaXaml Include="**/*.xaml" />
   </ItemGroup>
 </Project>
