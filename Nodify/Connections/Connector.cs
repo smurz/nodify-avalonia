@@ -188,7 +188,7 @@ namespace Nodify
                 // If events are not already hooked and we are asked to subscribe
                 if (value && !_isHooked)
                 {
-                    Container.PreviewLocationChanged += UpdateAnchorOptimized;
+                    Container.PreviewLocationChanged += OnPreviewLocationChanged;
                     Container.LocationChanged += OnLocationChanged;
                     Container.SizeChanged += OnContainerSizeChanged;
                     // I don't think this is actually needed?
@@ -198,7 +198,7 @@ namespace Nodify
                 // If events are already hooked and we are asked to unsubscribe
                 else if (_isHooked && !value)
                 {
-                    Container.PreviewLocationChanged -= UpdateAnchorOptimized;
+                    Container.PreviewLocationChanged -= OnPreviewLocationChanged;
                     Container.LocationChanged -= OnLocationChanged;
                     Container.SizeChanged -= OnContainerSizeChanged;
                     //Editor.ViewportUpdated -= OnViewportUpdated;
@@ -210,7 +210,7 @@ namespace Nodify
         private void OnContainerSizeChanged(object? sender, SizeChangedEventArgs e)
         {
             _cachedAnchorOffset = null;
-            UpdateAnchorOptimized(Container!.Location);
+            UpdateConnectedAnchor(Container!.Location);
         }
 
         private void OnConnectorLoaded(object? sender, RoutedEventArgs? e)
@@ -242,13 +242,37 @@ namespace Nodify
 
                 if (Container != null)
                 {
-                    UpdateAnchorOptimized(Container!.Location);
+                    UpdateConnectedAnchor(Container!.Location);
                 }
             }
         }
 
+        // Only drag previews may skip off-viewport anchors; a skipped first layout or commit is never revisited,
+        // which left wires of off-viewport nodes drawn to the canvas origin.
         private void OnLocationChanged(object? sender, RoutedEventArgs e)
-            => UpdateAnchorOptimized(Container!.Location);
+            => UpdateConnectedAnchor(Container!.Location);
+
+        // A cancelled drag previews the committed location; it must land exactly like a commit, or a node
+        // dragged through the viewport keeps its last in-view anchor.
+        private void OnPreviewLocationChanged(Point location)
+        {
+            if (location == Container!.Location)
+            {
+                UpdateConnectedAnchor(location);
+            }
+            else
+            {
+                UpdateAnchorOptimized(location);
+            }
+        }
+
+        private void UpdateConnectedAnchor(Point location)
+        {
+            if (IsConnected)
+            {
+                UpdateAnchor(location);
+            }
+        }
 
         private void OnViewportUpdated(object? sender, RoutedEventArgs args)
         {
